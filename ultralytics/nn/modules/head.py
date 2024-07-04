@@ -203,13 +203,14 @@ class OBB(Detect):
         """Concatenates and returns predicted bounding boxes and class probabilities."""
         bs = x[0].shape[0]  # batch size
 
-        angle_params = torch.cat([self.cv4[i](x[i]).view(bs, self.ne, -1) for i in range(self.nl)], 2) # shape (bs, 2, num_anchors)
-        v1, v2 = angle_params.tanh().split(1, dim = 1)
+        double_angle_params = torch.cat([self.cv4[i](x[i]).view(bs, self.ne, -1) for i in range(self.nl)], 2) # shape (bs, 2, num_anchors)
+        v1, v2 = double_angle_params.tanh().split(1, dim = 1)
 
 
 
         # Make angle run from -pi/4 to 3pi/4 to be consistent with previous convention
-        angle = torch.atan2(v2,v1) - math.pi/4 # shape (bs, 1, num_anchors)
+        double_angle = torch.atan2(v2,v1) # shape (bs, 1, num_anchors)
+        angle = double_angle/2 + math.pi/4
 
         # NOTE: set `angle` as an attribute so `decode_bboxes` can use it
         if not self.training:
