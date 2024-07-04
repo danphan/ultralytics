@@ -204,7 +204,7 @@ class OBB(Detect):
         bs = x[0].shape[0]  # batch size
 
         angle_params = torch.cat([self.cv4[i](x[i]).view(bs, self.ne, -1) for i in range(self.nl)], 2) # shape (bs, 2, num_anchors)
-        v1, v2 = angle_params.sigmoid().split(1, dim = 1)
+        v1, v2 = angle_params.tanh().split(1, dim = 1)
 
 
 
