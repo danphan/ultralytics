@@ -191,10 +191,10 @@ class Segment(Detect):
 class OBB(Detect):
     """YOLOv8 OBB detection head for detection with rotation models."""
 
-    def __init__(self, nc=80, ne=1, ch=()):
+    def __init__(self, nc=80, ne=2, ch=()):
         """Initialize OBB with number of classes `nc` and layer channels `ch`."""
         super().__init__(nc, ch)
-        self.ne = ne  # number of extra parameters
+        self.ne = ne  # number of extra parameters, used for predicting angle
 
         c4 = max(ch[0] // 4, self.ne)
         self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.ne, 1)) for x in ch)
@@ -202,10 +202,14 @@ class OBB(Detect):
     def forward(self, x):
         """Concatenates and returns predicted bounding boxes and class probabilities."""
         bs = x[0].shape[0]  # batch size
-        angle = torch.cat([self.cv4[i](x[i]).view(bs, self.ne, -1) for i in range(self.nl)], 2)  # OBB theta logits
-        # NOTE: set `angle` as an attribute so that `decode_bboxes` could use it.
-        angle = (angle.sigmoid() - 0.25) * math.pi  # [-pi/4, 3pi/4]
-        # angle = angle.sigmoid() * math.pi / 2  # [0, pi/2]
+
+        angle_params = torch.cat([self.cv4[i](x[i]).view(bs, self.ne, -1) for i in range(self.nl)], 2) # shape (bs, 2, num_anchors)
+        v1, v2 = angle_params.split(1, dim = 1)
+
+        # Make angle run from -pi/4 to 3pi/4 to be consistent with previous convention
+        angle = torch.atan2(v2,v1) - math.pi/4 # shape (bs, 1, num_anchors)
+
+        # NOTE: set `angle` as an attribute so `decode_bboxes` can use it
         if not self.training:
             self.angle = angle
         x = Detect.forward(self, x)
