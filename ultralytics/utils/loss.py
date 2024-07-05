@@ -1,5 +1,6 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -121,6 +122,8 @@ class RotatedBboxLoss(BboxLoss):
 
     def forward(self, pred_dist, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask):
         """IoU loss."""
+
+        # Get pred_bboxes
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
         iou = probiou(pred_bboxes[fg_mask], target_bboxes[fg_mask])
         loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
@@ -635,11 +638,12 @@ class v8OBBLoss(v8DetectionLoss):
                     out[j, :n] = torch.cat([targets[matches, 1:2], bboxes], dim=-1)
         return out
 
+
     def __call__(self, preds, batch):
         """Calculate and return the loss for the YOLO model."""
         loss = torch.zeros(3, device=self.device)  # box, cls, dfl
-        feats, pred_angle = preds if isinstance(preds[0], list) else preds[1]
-        batch_size = pred_angle.shape[0]  # batch size, number of masks, mask height, mask width
+        feats, pred_angle_encoding = preds if isinstance(preds[0], list) else preds[1]
+        batch_size = pred_angle_encoding.shape[0]  # batch size, number of masks, mask height, mask width
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
             (self.reg_max * 4, self.nc), 1
         )
@@ -647,7 +651,14 @@ class v8OBBLoss(v8DetectionLoss):
         # b, grids, ..
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
         pred_distri = pred_distri.permute(0, 2, 1).contiguous()
-        pred_angle = pred_angle.permute(0, 2, 1).contiguous()
+        pred_angle_encoding = pred_angle_encoding.permute(0, 2, 1).contiguous()
+
+        # Get angle from encoding
+        v1, v2 = pred_angle_encoding.tanh().split(1, dim = -1)
+        double_angle = torch.atan2(v2, v1)
+
+        # Make sure angle fits in [-pi/4,3pi/4] for consistency with prior implementation
+        pred_angle = double_angle / 2 + math.pi/4
 
         dtype = pred_scores.dtype
         imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]  # image size (h,w)
@@ -672,7 +683,7 @@ class v8OBBLoss(v8DetectionLoss):
             ) from e
 
         # Pboxes
-        pred_bboxes = self.bbox_decode(anchor_points, pred_distri, pred_angle)  # xyxy, (b, h*w, 4)
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri, pred_angle)  # xyxy, (b, h*w, 5)
 
         bboxes_for_assigner = pred_bboxes.clone().detach()
         # Only the first four elements need to be scaled
@@ -695,11 +706,18 @@ class v8OBBLoss(v8DetectionLoss):
         # Bbox loss
         if fg_mask.sum():
             target_bboxes[..., :4] /= stride_tensor
+
             loss[0], loss[2] = self.bbox_loss(
                 pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
+            # Add to box loss term penalizing angle coords from mapping to unit circle
+            # TODO: Maybe we should only penalize the norm of foreground masks?
+            norm_deviation = (1 - v1**2 - v2**2) # shape (bs, num_anchors, 1)
+            loss[0] += 0.1 * norm_deviation[fg_mask].pow(2).sum() / target_scores_sum
+
         else:
-            loss[0] += (pred_angle * 0).sum()
+            loss[0] += (pred_angle_encoding * 0).sum()
+
 
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain

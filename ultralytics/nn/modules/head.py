@@ -199,26 +199,39 @@ class OBB(Detect):
         c4 = max(ch[0] // 4, self.ne)
         self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.ne, 1)) for x in ch)
 
+    @staticmethod
+    def decode_angles(angle_encodings):
+        """
+        Extracts the bounding-box orientations from the angle encodings.
+
+        Args:
+            angle_encoding (np.ndarray): the coordinates encoding the angle, of shape (bs, 2, num_anchors)
+        Returns:
+            (np.ndarray): the angles of the bounding boxes, of shape (bs, 1, num_anchors)
+        """
+        # Use tanh() to avoid v1,v2 blowing up.
+        v1, v2 = angle_encodings.tanh().split(1, dim = 1)
+
+        # Make angle run from -pi/4 to 3pi/4 to be consistent with previous implementation
+        double_angle = torch.atan2(v2,v1) # shape (bs, 1, num_anchors)
+        return double_angle/2 + math.pi/4
+
     def forward(self, x):
         """Concatenates and returns predicted bounding boxes and class probabilities."""
         bs = x[0].shape[0]  # batch size
 
-        double_angle_params = torch.cat([self.cv4[i](x[i]).view(bs, self.ne, -1) for i in range(self.nl)], 2) # shape (bs, 2, num_anchors)
-
-        # Use tanh() to avoid v1,v2 blowing up.
-        v1, v2 = double_angle_params.tanh().split(1, dim = 1)
-
-        # Make angle run from -pi/4 to 3pi/4 to be consistent with previous convention
-        double_angle = torch.atan2(v2,v1) # shape (bs, 1, num_anchors)
-        angle = double_angle/2 + math.pi/4
+        angle_encoding = torch.cat([self.cv4[i](x[i]).view(bs, self.ne, -1) for i in range(self.nl)], 2) # shape (bs, 2, num_anchors)
+        angle = self.decode_angles(angle_encoding)
 
         # NOTE: set `angle` as an attribute so `decode_bboxes` can use it
         if not self.training:
             self.angle = angle
         x = Detect.forward(self, x)
         if self.training:
-            return x, angle
-        return torch.cat([x, angle], 1) if self.export else (torch.cat([x[0], angle], 1), (x[1], angle))
+            return x, angle_encoding
+        
+        # Keep angle_encoding so loss works the same way during evaluation
+        return torch.cat([x, angle], 1) if self.export else (torch.cat([x[0], angle], 1), (x[1], angle_encoding))
 
     def decode_bboxes(self, bboxes, anchors):
         """Decode rotated bounding boxes."""
