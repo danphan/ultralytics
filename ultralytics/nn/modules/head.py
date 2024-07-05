@@ -204,9 +204,7 @@ class OBB(Detect):
         bs = x[0].shape[0]  # batch size
 
         double_angle_params = torch.cat([self.cv4[i](x[i]).view(bs, self.ne, -1) for i in range(self.nl)], 2) # shape (bs, 2, num_anchors)
-
-        # Use tanh() to avoid v1,v2 blowing up.
-        v1, v2 = double_angle_params.tanh().split(1, dim = 1)
+        v1, v2 = double_angle_params.split(1, dim = 1)
 
         # Make angle run from -pi/4 to 3pi/4 to be consistent with previous convention
         double_angle = torch.atan2(v2,v1) # shape (bs, 1, num_anchors)
