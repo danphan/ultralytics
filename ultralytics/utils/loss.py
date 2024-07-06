@@ -711,9 +711,9 @@ class v8OBBLoss(v8DetectionLoss):
                 pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
             # Add to box loss term penalizing angle coords from mapping to unit circle
-            # TODO: Maybe we should only penalize the norm of foreground masks?
             norm_deviation = (1 - v1**2 - v2**2) # shape (bs, num_anchors, 1)
-            loss[0] += 0.001 * norm_deviation[fg_mask].pow(2).sum() / target_scores_sum
+            loss[0] += norm_deviation.pow(2).sum() / norm_deviation.numel()
+            #loss[0] += 0.001 * norm_deviation[fg_mask].pow(2).sum() / target_scores_sum
 
         else:
             loss[0] += (pred_angle_encoding * 0).sum()
