@@ -654,7 +654,7 @@ class v8OBBLoss(v8DetectionLoss):
         pred_angle_encoding = pred_angle_encoding.permute(0, 2, 1).contiguous()
 
         # Get angle from encoding
-        v1, v2 = pred_angle_encoding.tanh().split(1, dim = -1)
+        v1, v2 = pred_angle_encoding.split(1, dim = -1)
         double_angle = torch.atan2(v2, v1)
 
         # Make sure angle fits in [-pi/4,3pi/4] for consistency with prior implementation

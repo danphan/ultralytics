@@ -209,8 +209,7 @@ class OBB(Detect):
         Returns:
             (np.ndarray): the angles of the bounding boxes, of shape (bs, 1, num_anchors)
         """
-        # Use tanh() to avoid v1,v2 blowing up.
-        v1, v2 = angle_encodings.tanh().split(1, dim = 1)
+        v1, v2 = angle_encodings.split(1, dim = 1)
 
         # Make angle run from -pi/4 to 3pi/4 to be consistent with previous implementation
         double_angle = torch.atan2(v2,v1) # shape (bs, 1, num_anchors)
